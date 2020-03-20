@@ -52,6 +52,9 @@
 #include "mi.h"
 #include "mi_trace.h"
 
+//???
+#include "../sr_module.h"
+#include "../db/db.h"
 
 static str    up_since_ctime;
 
@@ -761,6 +764,46 @@ static mi_response_t *w_reload_routes(const mi_params_t *params,
 	return init_mi_error( 500, MI_SSTR("reload failed"));
 }
 
+static mi_response_t *mi_db_show(const mi_params_t *params,
+							struct mi_handler *async_hdl)
+{
+
+	mi_response_t *resp;
+    mi_item_t *resp_obj;
+    db_con_t *db;
+    db_func_t *dbf = NULL;
+    db_res_t *db_res;
+    str db_url;
+
+	resp = init_mi_result_object(&resp_obj);
+	if (!resp)
+		return 0;
+    if(get_mi_string_param(params, "db_url", &db_url.s, &db_url.len) < 0)
+		return init_mi_param_error();
+    //check binding?
+    if(db_bind_mod(&db_url, dbf)) {
+        //ERROR
+        ;
+    }
+    db = dbf->init(&db_url);
+    if(db == NULL) {
+        //ERROR
+        ;
+    }
+	if (dbf->query(db, NULL, NULL, NULL, NULL, 0, 0, NULL, &db_res) < 0) {
+        //ERROR
+        ;
+    }
+    for(int i = 0; i < RES_COL_N(db_res); i++) {
+		printf("%s ", (RES_NAMES(db_res)[i])->s);
+	}
+	printf("\n");
+
+
+
+    return resp;
+}
+
 
 
 static mi_export_t mi_core_cmds[] = {
@@ -900,6 +943,11 @@ static mi_export_t mi_core_cmds[] = {
 	{ "help", "prints information about MI commands usage", 0, 0, {
 		{w_mi_help, {0}},
 		{w_mi_help_1, {"mi_cmd", 0}},
+		{EMPTY_MI_RECIPE}
+		}
+	},
+    { "db_show", "TODO", 0, 0, {
+		{mi_db_show, {"db_url", 0}},
 		{EMPTY_MI_RECIPE}
 		}
 	},
