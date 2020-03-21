@@ -797,7 +797,7 @@ static mi_response_t *mi_db_show(const mi_params_t *params,
         return 0;
     }
 	if (dbf->query(db, NULL, NULL, NULL, NULL, 0, 0, NULL, &db_res) < 0) {
-        fprintf(stderr, "error while querying thee table\n");
+        fprintf(stderr, "error while querying the table\n");
         dbf->close(db);
         free_mi_response(resp);
         return 0;
@@ -977,7 +977,7 @@ static mi_export_t mi_core_cmds[] = {
 		{EMPTY_MI_RECIPE}
 		}
 	},
-    { "db_show", "TODO", 0, 0, {
+    { "db_show", "prints contents of database", 0, 0, {
 		{mi_db_show, {"db_url", 0}},
 		{EMPTY_MI_RECIPE}
 		}
