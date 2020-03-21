@@ -769,39 +769,69 @@ static mi_response_t *mi_db_show(const mi_params_t *params,
 {
 
 	mi_response_t *resp;
-    mi_item_t *resp_obj;
+    mi_item_t *resp_obj,
+              *col_arr, *col_item;
     db_con_t *db;
     db_func_t *dbf = NULL;
     db_res_t *db_res;
+    db_key_t *col_names;
+    db_type_t *col_types;
     str db_url;
+    int i;
 
 	resp = init_mi_result_object(&resp_obj);
 	if (!resp)
 		return 0;
+    col_arr = add_mi_array(resp_obj, MI_SSTR("Columns"));
     if(get_mi_string_param(params, "db_url", &db_url.s, &db_url.len) < 0)
 		return init_mi_param_error();
-    //check binding?
     if(db_bind_mod(&db_url, dbf)) {
-        //ERROR
-        ;
+        fprintf(stderr, "failed to bind database module\n");
+        free_mi_response(resp);
+        return 0;
     }
     db = dbf->init(&db_url);
     if(db == NULL) {
-        //ERROR
-        ;
+        fprintf(stderr, "failed to initialize database connection\n");
+        free_mi_response(resp);
+        return 0;
     }
 	if (dbf->query(db, NULL, NULL, NULL, NULL, 0, 0, NULL, &db_res) < 0) {
-        //ERROR
-        ;
+        fprintf(stderr, "error while querying thee table\n");
+        dbf->close(db);
+        free_mi_response(resp);
+        return 0;
     }
-    for(int i = 0; i < RES_COL_N(db_res); i++) {
-		printf("%s ", (RES_NAMES(db_res)[i])->s);
-	}
-	printf("\n");
-
-
-
+    col_names = RES_NAMES(db_res);
+    col_types = RES_TYPES(db_res);
+    for(i = 0; i < RES_COL_N(db_res); i++) {
+        col_item = add_mi_object(col_arr, 0, 0);
+        if(col_item == NULL) {
+            goto error;
+        }
+        if(add_mi_number(col_item, MI_SSTR("ID"), i) < 0) {
+            goto error;
+        }
+        if(add_mi_string(col_item, MI_SSTR("Name"),
+           col_names[i]->s, col_names[i]->len) < 0) {
+            goto error;
+        }
+        //TODO: replace with string
+        if(add_mi_number(col_item, MI_SSTR("Type"), col_types[i]) < 0) {
+            goto error;
+    }
+    if(db_free_result(db_res)) {
+        fprintf(stderr, "error while freeing query results\n");
+    }
+    free_mi_response(resp);
+    dbf->close(db);
     return resp;
+
+error:
+    fprintf(stderr, "error while adding mi item\n");
+    free_mi_response(resp);
+    dbf->close(db);
+    return 0;
 }
 
 
