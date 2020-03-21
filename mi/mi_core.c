@@ -818,7 +818,8 @@ static mi_response_t *mi_db_show(const mi_params_t *params,
         }
         //TODO: replace with string
         if(add_mi_number(col_item, MI_SSTR("Type"), col_types[i]) < 0) {
-            goto error;
+            goto error;    
+        }
     }
     if(db_free_result(db_res)) {
         fprintf(stderr, "error while freeing query results\n");
