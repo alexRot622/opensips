@@ -19,23 +19,61 @@
  */
 
 #include "../str.h"
+#include "../str_list.h"
 #include "../mi/mi.h"
 #include "../db/db.h"
 
-struct pi_conns {
+struct pi_conn {
     str name;           /* the name of the connector */
-    str table;          /* the name of the table */
     db_con_t *con;      /* database connector */
     unsigned int flags; /* different flags */
-    str *tables;        /* NULL terminated array of tables the module exposes */
-    struct pi_conns *next;
+    struct str_list *tables;
+    struct pi_conn *next;
 } *pi_conns_list;
 
 int db_pi_add(str *name, str *table, db_con_t *con, unsigned int flags)
 {
+    struct pi_conn *pi_conn, *new_pi_conn;
+
     LM_INFO("adding %.*s connector to PI table=%.*s\n",
             name->len, name->s, table->len, table->s);
-    /* TODO: add a new element in pi_conns_list */
+    new_pi_conn = (struct pi_conn *) malloc(sizeof(struct pi_conn));
+    if(new_pi_conn == NULL) {
+        LM_ERR("Could not allocate memory for new pi_conn.\n");
+        return -1;
+    }
+    new_pi_conn->name.s = (char *) malloc(name->len);
+    if(new_pi_conn->name.s == NULL) {
+        LM_ERR("Could not allocate memory for new pi_conn.\n");
+        free(new_pi_conn);
+        return -1;
+    }
+    str_cpy(&new_pi_conn->name, name);
+    new_pi_conn->con = con;
+    new_pi_conn->flags = flags;
+    new_pi_conn->tables = (struct str_list *) malloc(sizeof(struct str_list));
+    if(new_pi_conn->tables == NULL) {
+        LM_ERR("Could not allocate memory for new pi_conn.\n");
+        free(new_pi_conn->name.s);
+        free(new_pi_conn);
+        return -1;
+    }
+    new_pi_conn->tables->s.s = (char *) malloc(table->len);
+    if(new_pi_conn->tables->s.s == NULL) {
+        LM_ERR("Could not allocate memory for new pi_conn.\n");
+        free(new_pi_conn->tables);
+        free(new_pi_conn->name.s);
+        free(new_pi_conn);
+        return -1;
+    }
+    str_cpy(&new_pi_conn->tables->s, table);
+    new_pi_conn->next = NULL;
+    for(pi_conn = pi_conns_list; pi_conn != NULL; pi_conn = pi_conn->next) {
+        if(pi_conn->next == NULL) {
+            break;
+        }
+    }
+    pi_conn->next = new_pi_conn;
     return 0;
 }
 
@@ -53,18 +91,19 @@ mi_response_t *w_mi_pi_list(const mi_params_t *params,
         {str_init("dialplan"), {str_init("dialplan"), {0, 0}}},
         {str_init("rtpproxy"), {str_init("rtpproxy_sockets"), {0, 0}}},
     };
-
-    int i, j;
 	mi_item_t *resp_obj;
 	mi_item_t *arr_obj;
 	mi_response_t *resp = init_mi_result_object(&resp_obj);
+    struct pi_conn *pi_conn;
+    struct str_list *table;
+
 	if (!resp)
 		return 0;
-    /* quick hack to return a list of provisioned connectors */
-    for (i = 0; i < sizeof(pi_conns)/sizeof(pi_conns[0]); i++) {
-        arr_obj = add_mi_array(resp_obj, pi_conns[i].name.s, pi_conns[i].name.len);
-        for (j = 0; pi_conns[i].table[j].s; j++)
-            add_mi_string(arr_obj, 0, 0, pi_conns[i].table[j].s, pi_conns[i].table[j].len);
+    for (pi_conn = pi_conns_list; pi_conn != NULL; pi_conn = pi_conn->next) {
+        arr_obj = add_mi_array(resp_obj, pi_conn->name.s, pi_conn->name.len);
+        for (table = pi_conn->tables; table != NULL; table = table->next) {
+            add_mi_string(arr_obj, 0, 0, table->s.s, table->s.len);
+        }
     }
     return resp;
 }
