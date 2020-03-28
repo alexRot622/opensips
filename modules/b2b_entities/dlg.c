@@ -2061,7 +2061,7 @@ int b2b_send_request(b2b_req_data_t* req_data)
 	set_dlg_state(dlg, method_value);
 
 	if (B2BE_SERIALIZE_STORAGE()) {
-		if (dlg->state == B2B_ESTABLISHED) {
+		if (dlg->state == B2B_ESTABLISHED && dlg->replicated) {
 			b2b_ev = B2B_EVENT_UPDATE;
 			b2b_run_cb(dlg, et, B2BCB_TRIGGER_EVENT, b2b_ev, &storage);
 		} else if (dlg->state == B2B_TERMINATED) {
@@ -3048,17 +3048,11 @@ dummy_reply:
 					dlginfo.totag = dlg->tag[CALLER_LEG];
 					dlg->state = B2B_CONFIRMED;
 
-					if (B2BE_SERIALIZE_STORAGE())
-						b2b_run_cb(dlg, etype, B2BCB_TRIGGER_EVENT,
-							B2B_EVENT_CREATE, &storage);
-
-					if(b2be_db_mode == WRITE_THROUGH)
-					{
-						b2be_db_insert(dlg, etype);
-					}
-
 					current_dlg = dlg;
 					dlg_state = dlg->state;
+					b2b_ev = B2B_EVENT_CREATE;
+					UPDATE_DBFLAG(dlg);
+
 					lock_release(&htable[hash_index].lock);
 
 					if(add_infof && add_infof(param.s?&param:0, b2b_key,
@@ -3067,13 +3061,6 @@ dummy_reply:
 						LM_ERR("Failed to add dialoginfo\n");
 						goto error1;
 					}
-					UPDATE_DBFLAG(dlg);
-
-					if (b2be_cluster)
-						replicate_entity_create(dlg, etype, hash_index, &storage);
-
-					if (B2BE_SERIALIZE_STORAGE() && storage.buffer.s)
-						bin_free_packet(&storage);
 
 					goto done1;
 				}
@@ -3124,18 +3111,32 @@ done1:
 
 b2b_route:
 
-	if (B2BE_SERIALIZE_STORAGE() &&
-		dlg_state == B2B_CONFIRMED && prev_state == B2B_MODIFIED) {
-		b2b_ev = B2B_EVENT_UPDATE;
-		lock_get(&htable[hash_index].lock);
+	if (B2BE_SERIALIZE_STORAGE()) {
+		if (dlg_state == B2B_CONFIRMED && prev_state == B2B_MODIFIED) {
+			lock_get(&htable[hash_index].lock);
 
-		b2b_run_cb(dlg, etype, B2BCB_TRIGGER_EVENT, b2b_ev, &storage);
+			if (dlg->state != B2B_TERMINATED) {
+				b2b_ev = B2B_EVENT_UPDATE;
+				b2b_run_cb(dlg, etype, B2BCB_TRIGGER_EVENT, b2b_ev, &storage);
+			} else
+				b2b_ev = -1;
+		} else if (b2b_ev == B2B_EVENT_CREATE) {
+			lock_get(&htable[hash_index].lock);
+
+			if (dlg->state != B2B_TERMINATED) {
+				b2b_run_cb(dlg, etype, B2BCB_TRIGGER_EVENT, b2b_ev, &storage);
+
+				if (b2be_db_mode == WRITE_THROUGH)
+					b2be_db_insert(dlg, etype);
+			} else
+				b2b_ev = -1;
+		}
 	}
 
 	current_dlg = 0;
 	if(b2be_db_mode == WRITE_THROUGH && dlg_state>B2B_CONFIRMED)
 	{
-		if (b2b_ev != B2B_EVENT_UPDATE)
+		if (b2b_ev == -1)
 			lock_get(&htable[hash_index].lock);
 
 		for(aux_dlg = htable[hash_index].first; aux_dlg; aux_dlg = aux_dlg->next)
@@ -3151,11 +3152,15 @@ b2b_route:
 
 		b2be_db_update(dlg, etype);
 		lock_release(&htable[hash_index].lock);
-	} else if (b2b_ev == B2B_EVENT_UPDATE)
+	} else if (b2b_ev != -1)
 		lock_release(&htable[hash_index].lock);
 
-	if (b2be_cluster && b2b_ev == B2B_EVENT_UPDATE)
-		replicate_entity_update(dlg, etype, hash_index, NULL, &storage);
+	if (b2be_cluster) {
+		if (b2b_ev == B2B_EVENT_UPDATE)
+			replicate_entity_update(dlg, etype, hash_index, NULL, &storage);
+		if (b2b_ev == B2B_EVENT_CREATE)
+			replicate_entity_create(dlg, etype, hash_index, &storage);
+	}
 
 	if (to_hdr_parsed.param_lst) {
 		/* message was built on the fly from T
